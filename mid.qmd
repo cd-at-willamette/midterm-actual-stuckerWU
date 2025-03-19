@@ -1,7 +1,7 @@
 ---
 title: "Characterizing Automobiles"
-author: "Your Name Here"
-date: "03/17/2025"
+author: "Summer Tucker"
+date: "03/18/2025"
 
 format: 
   html:  # You will quite likely want to change all but the last one, to taste
@@ -26,6 +26,7 @@ sh(library(caret))
 sh(library(fastDummies))
 sh(library(class))
 sh(library(ISLR)) # for the "Auto" dataframe
+sh(library(pROC))
 ```
 
 # Dataframe
@@ -48,10 +49,30 @@ names(Auto)
 - Compute and comment on the RMSE.
 
 ```{r regression}
-# Your code here
+
+sh(library(caret))
+sh(library(fastDummies))
+sh(library(class))
+sh(library(moderndive))
+
+#Linear Model 
+carLM1 <- lm(mpg ~ horsepower, data=Auto)
+carLM2 <- lm(mpg ~ year, data=Auto)
+carLM3 <- lm(mpg ~ horsepower + year, data=Auto)
+carLM4 <- lm(mpg ~ horsepower * year, data=Auto)
+carLM5 <- lm(mpg ~ ., data=Auto)
+
+#Compute RMSE
+get_rmse <- function(m) {
+    pred <- predict(m, newdata = Auto)
+    sqrt(mean((Auto$mpg - pred)^2))
+}
+
+unlist(lapply(list(carLM1, carLM2, carLM3, carLM4, carLM5), get_rmse))
+
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+### *In general, if we use only one feature (year or horsepower), this yields the worst RMSE (about 6.34 and about 4.89 respectively). On the other end of the spectrum, using all features yields an RMSE of about 1.057. Though a low RMSE indicates there is less difference in the model's predicted values versus the actual values, it's worth considering that using all of the features may lead to an overfitted model. In the middle of the pack, using horsepower and year results in an RMSE of about 3.88. This may be our middle ground for accuracy without overfitting the model too much. However, it's worth considering whether this error makes a significant difference to a particular audience. As someone who drives primarily short differences, and doesn't need to drive everyday, an error of just under 4 miles might not make much difference to me. However, car aficionados or people who drive much more frequently and for longer differences might find that more significant. Thus, a "good" RMSE will depend on the context.*
 
 # Feature Engineering
 
@@ -61,10 +82,46 @@ names(Auto)
 - Compute and comment on the RMSE.
 
 ```{r features}
-# Your code here
+# Engineering 10 features based on manufacturer name & removing 
+c_feat <- Auto %>%
+  mutate(name = tolower(name)) %>%
+    mutate(toyota = str_detect(name,"toyota")) %>%
+    mutate(volvo = str_detect(name,"volvo")) %>%
+    mutate(chevrolet = str_detect(name,"chevrolet")) %>%
+    mutate(vw = str_detect(name,"volkswagen")) %>%
+    mutate(ford = str_detect(name,"ford")) %>%
+    mutate(mazda = str_detect(name,"mazda")) %>%
+    mutate(dodge = str_detect(name,"dodge")) %>%
+    mutate(honda = str_detect(name,"honda")) %>%
+    mutate(nissan = str_detect(name,"nissan")) %>%
+    mutate(buick = str_detect(name,"buick")) %>%
+  filter(!is.na(name))%>%
+  select(-cylinders,-displacement,-horsepower,-weight,-acceleration,-year,-origin,-name)
+
+c_feat_all <- Auto %>%
+  mutate(name = tolower(name)) %>%
+    mutate(toyota = str_detect(name,"toyota")) %>%
+    mutate(volvo = str_detect(name,"volvo")) %>%
+    mutate(chevrolet = str_detect(name,"chevrolet")) %>%
+    mutate(vw = str_detect(name,"volkswagen")) %>%
+    mutate(ford = str_detect(name,"ford")) %>%
+    mutate(mazda = str_detect(name,"mazda")) %>%
+    mutate(dodge = str_detect(name,"dodge")) %>%
+    mutate(honda = str_detect(name,"honda")) %>%
+    mutate(nissan = str_detect(name,"nissan")) %>%
+    mutate(buick = str_detect(name,"buick")) %>%
+  filter(!is.na(name)) 
+
+#computing RMSE with MPG & engineered features only
+sqrt(mean((c_feat$mpg - predict(lm(formula = mpg ~ ., data = c_feat), newdata = c_feat))^2))
+
+#computing RMSE with all original features AND engineered features 
+sqrt(mean((c_feat_all$mpg - predict(lm(formula = mpg ~ ., data = c_feat_all), newdata = c_feat_all))^2))
+
+
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+### *I compared the RMSE on two models: one that had all of the original features plus the engineered features, and one that had only mpg and the engineered features. The RMSE is starkly different between the two: about 6.98 for the engineered features only, about 1.057 for the more expansive model. Given that I selected a random assortment of manufacturer names, I'm not surprised that the engineered features alone didn't help much. However, since the RMSE didn't change much on the model with original and engineered features (when compared to only using the original features in the first section), it's even more apparent that the features I engineered did not make much difference or add much predictive power.*
 
 # Classification
 
@@ -73,10 +130,70 @@ names(Auto)
 - Report on your Kappa value.
 
 ```{r classification}
-# Your code here
+# Using NB
+
+#adding manufacturer column to Auto dataset, no binning NB model
+auto_ds <- Auto %>%
+  mutate(name = tolower(name)) %>%
+    mutate(chevrolet = str_detect(name,"chevrolet")) %>%
+    mutate(honda = str_detect(name,"honda")) %>%
+    mutate (chevrolet1=ifelse(chevrolet==TRUE,"chevrolet","other")) %>%
+    mutate (honda1=ifelse(honda==TRUE,"honda","other"))%>%
+    mutate(manufacturer = ifelse(chevrolet1=="chevrolet",chevrolet1, honda1))%>%
+    select(-name, -chevrolet,-chevrolet1,-honda,-honda1)
+
+
+set.seed(505)
+car_index <- createDataPartition(auto_ds$manufacturer, p = 0.80, list = FALSE)
+train_car <- auto_ds[car_index, ]
+test_car <- auto_ds[-car_index, ]
+
+fit <- train(manufacturer ~ .,
+             data = train_car, 
+             method = "naive_bayes",
+             tuneLength=15,
+             metric = "Kappa",
+             trControl = trainControl(method = "cv", number=5))
+fit
+
+
+confusionMatrix(predict(fit, test_car),factor(test_car$manufacturer))
+
+
+#adding manufacturer column to Auto dataset, binning NB model
+auto_ds1 <- Auto %>%
+  mutate(name = tolower(name)) %>%
+    mutate(chevrolet = str_detect(name,"chevrolet")) %>%
+    mutate(honda = str_detect(name,"honda")) %>%
+    mutate (chevrolet1=ifelse(chevrolet==TRUE,"chevrolet","other")) %>%
+    mutate (honda1=ifelse(honda==TRUE,"honda","other"))%>%
+    mutate(manufacturer = ifelse(chevrolet1=="chevrolet",chevrolet1, honda1))%>%
+    mutate(mpgbin=case_when(mpg >=23 ~ "high", mpg<23 ~ "low"))%>%
+    mutate(weightbin=case_when(weight >=2800 ~ "high", weight<2800 ~ "low"))%>%
+    mutate(accelerationbin=case_when(acceleration >=15.5 ~ "high", acceleration<15.5 ~ "low"))%>%
+    select(mpgbin, weightbin,accelerationbin,manufacturer)
+
+
+set.seed(505)
+car_index <- createDataPartition(auto_ds1$manufacturer, p = 0.80, list = FALSE)
+train_car1 <- auto_ds1[car_index, ]
+test_car1 <- auto_ds1[-car_index, ]
+
+fit <- train(manufacturer ~ .,
+             data = train_car1, 
+             method = "naive_bayes",
+             tuneLength=15,
+             metric = "Kappa",
+             trControl = trainControl(method = "cv", number=5))
+fit
+
+
+confusionMatrix(predict(fit, test_car1),factor(test_car1$manufacturer))
+
+
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+### *I selected Naive Bayes since I noticed there are many more Chevrolets in the dataset than Hondas - for that reason alone, I thought Naive Bayes might be more successful. The number of Hondas in the dataset is 13, so I thought there would be some challenges with KNN, as I'd need to select a certain number of neighbors to look at. When I tried Naive Bayes, I decided to bin a few features and see if that would be beneficial, since running Naive Bayes on the original features didn't give me a very high Kappa value (about 0.0676). However, that did not improve the Kappa value, and instead decreased it (0.0486). That being said, I simply binned based on numbers that were roughly around the mean for each of the selected features and designated "high" versus "low." More granular classes may be more helpful. In general, based on my own (limited) knowledge and impression of Honda and Chevrolet, I initially guessed that Hondas might have better gas mileage, be lighter, and maybe be able to accelerate faste. Thus, I selected and binned those features in hopes of differentiating from Chevrolet. However, a deeper dive into whether the data actually shows differences in those values between manufacturers seems necessary to develop better binned features.* 
 
 # Binary Classification
 
@@ -85,10 +202,69 @@ names(Auto)
 - Display and comment on an ROC curve.
 
 ```{r binary classification}
-# Your code here
+# create honda_ds
+ honda_ds <- Auto %>%
+  mutate(name = tolower(name)) %>%
+  mutate(honda = ifelse(str_detect(name,"honda"), "yes","no") ) %>%
+  mutate(model_weights=1)
+
+#finding weights
+counts <- table(honda_ds$honda)
+count_y <- counts["yes"]
+count_n <- counts["no"]
+weigh_y <- max(count_y,count_n)/count_y
+weigh_n <- max(count_y,count_n)/count_n
+
+c(count_y,count_n,weigh_y,weigh_n)
+
+#creating factor column for manufacturer
+auto_ds2 <- honda_ds %>%
+    mutate(manufacturer_honda = factor(honda=="yes")) %>%
+    select(-honda,-name)
+
+#adding weights
+honda_ds_weights <- honda_ds %>% 
+  mutate(manufacturer_honda = factor(honda=="yes")) %>%
+  mutate(model_weights=ifelse(honda==TRUE,weigh_y,weigh_n)) %>%
+  select(-honda,-name)
+
+
+#Model with weights
+car2_index <- createDataPartition(auto_ds2$manufacturer_honda, p = 0.80, list = FALSE)
+train_car2 <- auto_ds2[car2_index, ]
+test_car2 <- auto_ds2[-car2_index, ]
+
+table(train_car2$manufacturer_honda)
+
+control = trainControl(method = "cv", number = 5)
+
+get_fit <- function(df) {
+  train(manufacturer_honda ~ .,
+        data = df, 
+        trControl = control,
+        method = "glm",
+        family = "binomial",
+        maxit = 5,
+        weights=honda_ds_weights$weights_model)
+}
+fit_l <- get_fit(train_car2)
+
+fit_l
+
+#ROC curve
+prob <- predict(fit_l, newdata = test_car2, type = "prob")[,2]
+myRoc <- roc(test_car2$manufacturer_honda, prob)
+
+auc(myRoc)
+
+plot(myRoc)
+
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+
+### *The Kappa for this model is about 0.255, which would be considered in the "ok" range. However, the ROC curve  demostrates the model is quite sensitive and specific. With the ROC, a point near (0,1) on the curve shows the models is both highly specific and sensitive, which is considered good model performance (i.e., reducing the likelihood of reporting a car as a Honda when it is not, and doing a good job at detecting when a car is truly a Honda.) This ROC curve shows a curve passing right through (0,1) indicating excellent sensitivity and specificity. The curve is also no where near the diagnoal line - if it was, the model would be no better than random guessing, but in this case the ROC curve indicates quite the opposite. Additionally, we can see a substantial number (about 0.98) for the area under the curve (AUC = 1). This is another measure of model performance, with AUC = 1 being perfect.*
+
+### *Note: When I render this qmd, it is consistently showing a Kappa around 0.18, but on my end, I've gotten values of 0.255 and 0.282. I'm not sure what's causing the discrepancy, but wanted to note it.*
 
 # Ethics
 
